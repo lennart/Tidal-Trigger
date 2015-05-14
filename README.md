@@ -22,35 +22,24 @@ To make use of Tidal Trigger in emacs, add the following to your `tidal.el` with
 
 ```emacs
 (tidal-send-string "import Sound.Tidal.Trigger")
-
-(tidal-send-string "tr1 <- makeTrigger dirt 7771")
 ```
 
 ## Usage
 
-Within a running tidal session use `tr1` just like you would use e.g. a dirt stream `d1`:
+Within a running tidal session use one of the following functions
 
 ```haskell
-tr1 $ sound "bd sn"
+runnow d1 $ seqP [(2, 4, sound "bd sn")]
 ```
-
-This will run the above pattern for exactly one cycle
-
-Note that you could reproduce this with _vanilla_ tidal via:
+or to simply trigger a pattern one cycle
 
 ```haskell
-d1 $ seqP [(0, 1, sound "bd sn")]
+oneshot d1 $ sound "bd sn"
 ```
+which is essentially the same as `runnow d1 $ seqP [(0, 1, sound "bd sn")]`
 
-In emacs you can use `retrig` to make this work any time you like:
+To trigger a pattern for multiple cycles use `oneshot'` and pass in the number of cycles to play
 
 ```haskell
-d1 $ retrig $ seqP [(0, 1, sound "bd sn")]
+oneshot' d1 4 $ sound "bd sn"
 ```
-
-## Bugs
-
-Currently this will at some point open too many files and break tidal's server with `*** Exception: getCurrentDirectory: resource exhausted (Too many open files)`.
-Investigation on why and how to fix it is already started…
-
-Workaround is to restart the tidal interpreter (`C-c C-q` then `C-c C-s` in emacs)
