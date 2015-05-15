@@ -23,23 +23,29 @@ To make use of Tidal Trigger in emacs, add the following to your `tidal.el` with
 ```emacs
 (tidal-send-string "import Sound.Tidal.Trigger")
 ```
+and after loading `cpsUtils`
 
+```emacs
+(tidal-send-string "let rn = runnow getNow")
+(tidal-send-string "let os = oneshot getNow")
+(tidal-send-string "let os' = oneshot' getNow")
+````
 ## Usage
 
-Within a running tidal session use one of the following functions
+Within a running tidal session use these functions now. Note that the _names_ are arbitrary and depend on your setup, I chose short versions of `runnow`, `oneshot` and `oneshot'` so mine are called `rn`,`os` and `os'` respectively.
 
 ```haskell
-runnow d1 $ seqP [(2, 4, sound "bd sn")]
+rn d1 $ seqP [(2, 4, sound "bd sn")]
 ```
 or to simply trigger a pattern one cycle
 
 ```haskell
-oneshot d1 $ sound "bd sn"
+os d1 $ sound "bd sn"
 ```
-which is essentially the same as `runnow d1 $ seqP [(0, 1, sound "bd sn")]`
+which is essentially the same as `runnow getNow d1 $ seqP [(0, 1, sound "bd sn")]`
 
 To trigger a pattern for multiple cycles use `oneshot'` and pass in the number of cycles to play
 
 ```haskell
-oneshot' d1 4 $ sound "bd sn"
+os' d1 4 $ sound "bd sn"
 ```
