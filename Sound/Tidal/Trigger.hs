@@ -16,13 +16,13 @@ import Sound.Tidal.Stream
 import System.IO.Unsafe
 
 data TriggerEvent = TriggerOn { key :: Int, val :: Int } | TriggerOff { key :: Int, val :: Int } | CCChange { key :: Int, val :: Int} deriving (Show)
-data TriggerShape a = EmptyTShape |
+data TriggerShape a b = EmptyTShape |
                       TShape {
                         streams :: [UDP],
                         patternStatesM :: [MVar (Bool)],
                         patternsM :: [MVar (IO (Pattern a))],
                         knobs :: [MVar (Int)],
-                        knobsHandler :: [(Pattern Int -> Pattern a) -> IO (Pattern a)], -- knob1 - knob8
+--                        knobsHandler :: [(Pattern b -> Pattern a) -> IO (Pattern a)], -- knob1 - knob8
                         sampler :: [IO (Pattern a) -> IO ()] -- sm1 - sm8
                         }
 
@@ -239,15 +239,38 @@ sound' pattern = do
   return $ sound pattern
 
 makeKnobM knob p' = do v <- readKnob knob
-                       let v' = maybeListToPat [v]
+                       let v' = maybeListToPat [midiConvert <$> v]
                        return $ p' v'
 
-makeKnob knob = (\p' -> makeKnobM knob p') :: (Pattern Int -> Pattern a) -> IO (Pattern a)
+makeKnob knob = (\p' -> makeKnobM knob p') :: MIDIValue a => (Pattern a -> Pattern b) -> IO (Pattern b)
+
+
+k :: MIDIValue b => MVar (Int) -> (Pattern b -> Pattern a) -> IO (Pattern a)
+k knob synth_param = makeKnobM knob synth_param
+
+class MIDIValue a where
+  midiConvert :: Int -> a
+
+instance MIDIValue Int where
+  midiConvert v = v
+
+instance MIDIValue Double where
+  midiConvert v = normMIDIRange v
+
 
 soundAndKnob pattern knobParam = do k' <- knobParam
                                     s' <- sound' pattern
                                     let p' = s' |+| k'
                                     return $ p'
+
+mergeIO :: IO (Pattern OscMap) -> IO (Pattern OscMap) -> IO (Pattern OscMap)
+mergeIO p1 p2 = do p1' <- p1
+                   p2' <- p2
+                   return $ p1' |+| p2'
+
+infixl 1 |++|
+(|++|) :: IO (Pattern OscMap) -> IO (Pattern OscMap) -> IO (Pattern OscMap)
+(|++|) = mergeIO
 
 midiIn name = do
   edev <- getIDForInputDeviceName name
@@ -277,17 +300,17 @@ sampleproxy latency name ccroot = do
 makeSilence :: IO (Pattern a)
 makeSilence = do return silence
 
+
+
 sampleproxy' latency conn ccroot = do
   let n_chans = 8
   streams' <- replicateM n_chans $ openUDP "127.0.0.1" 7771
   patternsM' <- replicateM 8 (newMVar makeSilence)
   patternStatesM' <- replicateM 8 (newMVar False)
   knobs' <- replicateM 8 (newMVar 0)
-  let knobsHandler' = map (makeKnob) knobs'
---  knobPatternsM' <- replicateM 8 (newMVar [])
   (cps, getNow) <- cpsUtils
   let channelReplacer = zipWith ($) (zipWith ($) (map updatePattern streams') patternStatesM') patternsM'
-      shape = TShape streams' patternStatesM' patternsM' knobs' knobsHandler' channelReplacer
+      shape = TShape streams' patternStatesM' patternsM' knobs' channelReplacer
   forkIO $ loop conn ccroot shape
   return shape
     where loop conn ccroot shape = do v <- readCtrl conn
