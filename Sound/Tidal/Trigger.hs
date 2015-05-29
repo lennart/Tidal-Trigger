@@ -8,6 +8,7 @@ import Control.Exception as E
 import Foreign.C
 import Data.List
 import Data.Maybe
+import Data.Time
 
 import Sound.OSC.FD
 import Sound.Tidal.Stream
@@ -22,7 +23,7 @@ data TriggerShape a = EmptyTShape |
                         patternsM :: [MVar (IO (Pattern a))],
                         knobs :: [MVar (Int)],
                         knobsHandler :: [(Pattern Int -> Pattern a) -> IO (Pattern a)], -- knob1 - knob8
-                        sampler :: [IO (Pattern a) -> IO (Pattern a)] -- sm1 - sm8
+                        sampler :: [IO (Pattern a) -> IO ()] -- sm1 - sm8
                         }
 
 
@@ -105,21 +106,17 @@ readCtrl dev = do
     Left evts -> return $ handleEvents evts
 
 handleNoteOn stream patternStateM patternM key' val' = do
-  putStrLn ("Play Sample" ++ (show key'))
   maybeP <- tryReadMVar patternM
   case maybeP of
     Nothing ->
       return ()
     Just pattern -> do
       forkIO $ do
-        putStrLn ("Swap Sampler Pattern")
         swapMVar patternStateM True
-        putStrLn ("Sampler Pattern swapped")
         tickPattern stream dirt pattern (normMIDIRange val')
       return ()
 
 handleNoteOff stream patternStateM patternM key' val' = do
-  putStrLn ("Stop Sample" ++ (show key'))
   forkIO $ do
     swapMVar patternStateM False
     tickPattern stream dirt makeSilence (normMIDIRange val')
@@ -170,12 +167,12 @@ handleKeys ccroot shape (Just x) = handleKeys' ccroot shape x
 
 tickPattern stream shape iopattern len = do
   pattern <- iopattern
-  tempo <- readMVar =<< tempoMVar
+  now <- getCurrentTime
+  let tempo = Tempo now 0 0.5
   tOnTick stream shape pattern tempo 0 len -- if the pattern is currently triggered, directly evaluate its trigger to update the playing pattern
 
 
 handlePatternUpdate stream pattern True = do
-  putStrLn ("Retrigger running sampler with new Pattern")
   tickPattern stream dirt pattern 1
   return True
 
@@ -185,10 +182,9 @@ handlePatternUpdate stream pattern False =
 updatePattern stream patternStateM patternM pattern = do
   state <- readMVar patternStateM
   state' <- handlePatternUpdate stream pattern state
-  putStrLn ("Updating Pattern")
 --  swapMVar knobPatternM knobPatterns
   swapMVar patternM pattern
-  pattern
+  return ()
 
 tStart :: String -> Int -> OscShape -> IO (MVar (OscPattern))
 tStart address port shape
@@ -251,7 +247,6 @@ makeKnob knob = (\p' -> makeKnobM knob p') :: (Pattern Int -> Pattern a) -> IO (
 soundAndKnob pattern knobParam = do k' <- knobParam
                                     s' <- sound' pattern
                                     let p' = s' |+| k'
-                                    putStrLn ("Evaluated pattern: " ++ (show p'))
                                     return $ p'
 
 midiIn name = do
@@ -284,7 +279,7 @@ makeSilence = do return silence
 
 sampleproxy' latency conn ccroot = do
   let n_chans = 8
-  streams' <- replicateM n_chans $ samplerstream "127.0.0.1" 7771 dirt
+  streams' <- replicateM n_chans $ openUDP "127.0.0.1" 7771
   patternsM' <- replicateM 8 (newMVar makeSilence)
   patternStatesM' <- replicateM 8 (newMVar False)
   knobs' <- replicateM 8 (newMVar 0)
