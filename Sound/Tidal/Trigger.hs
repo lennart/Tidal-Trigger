@@ -4,16 +4,26 @@ import Sound.Tidal.Context
 import qualified Sound.PortMidi as PM
 
 import Control.Monad
-import Control.Exception
+import Control.Exception as E
 import Foreign.C
 import Data.List
+import Data.Maybe
 
+import Sound.OSC.FD
 import Sound.Tidal.Stream
 
 import System.IO.Unsafe
 
 data TriggerEvent = TriggerOn { key :: Int, val :: Int } | TriggerOff { key :: Int, val :: Int } | CCChange { key :: Int, val :: Int} deriving (Show)
-data TriggerShape a = EmptyTShape | TShape { streams :: [Pattern a -> IO ()], patternStatesM :: [MVar (Bool)], patternsM :: [MVar (Pattern a)], knobs :: [MVar (Int)], sampler :: [Pattern a -> IO (Pattern a)] }
+data TriggerShape a = EmptyTShape |
+                      TShape {
+                        streams :: [UDP],
+                        patternStatesM :: [MVar (Bool)],
+                        patternsM :: [MVar (IO (Pattern a))],
+                        knobs :: [MVar (Int)],
+                        knobsHandler :: [(Pattern Int -> Pattern a) -> IO (Pattern a)], -- knob1 - knob8
+                        sampler :: [IO (Pattern a) -> IO (Pattern a)] -- sm1 - sm8
+                        }
 
 
 withPortMidi = bracket_ PM.initialize PM.terminate
@@ -68,27 +78,31 @@ oneshot g d p' = runnow g d $ seqP [(0, 1, p')]
 
 oneshot' g d n p' = runnow g d $ seqP [(0, n, p')]
 
---readCtrl :: PM.PMStream -> IO (Maybe (CLong, CLong))
+parseEvent x = (s, m, key', val')
+  where m = PM.message x
+        s = PM.status m
+        key' = fromIntegral $ PM.data1 m
+        val' = fromIntegral $ PM.data2 m
+
+
+handleEvent' (0x90, m, key', 0) = handleEvent' (0x80, m, key', 0)
+handleEvent' (0x90, m, key', val') = TriggerOn key' val'
+handleEvent' (0x80, m, key', val') = TriggerOff key' val'
+handleEvent' (cc, m, key', val') = CCChange key' val'
+
+handleEvent x = handleEvent' $ parseEvent x
+
+handleEvents [] = Nothing
+handleEvents x = Just $ handleEvents' x
+
+handleEvents' [x] = [handleEvent x]
+handleEvents' (x:xs) = (handleEvents' [x]) ++ (handleEvents' xs)
+
 readCtrl dev = do
   ee <- PM.readEvents dev
   case ee of
     Right PM.NoError -> return Nothing
-    Left evts ->
-      do
-        case evts of
-          [] -> return Nothing
-          (x:xs) -> do
-            let m = PM.message x
-                s = PM.status m
-                key' = fromIntegral $ PM.data1 m
-                val' = fromIntegral $ PM.data2 m
-            case s of
-              0x90 -> case val' of
-                           0 -> return (Just $ TriggerOff key' val')
-                           _ -> return (Just $ TriggerOn key' val')
-              0x80 -> return (Just $ TriggerOff key' val')
-              _ -> do
-                return (Just $ CCChange key' val') -- we assume a CC for anything other than note on/off
+    Left evts -> return $ handleEvents evts
 
 handleNoteOn stream patternStateM patternM key' val' = do
   putStrLn ("Play Sample" ++ (show key'))
@@ -101,58 +115,68 @@ handleNoteOn stream patternStateM patternM key' val' = do
         putStrLn ("Swap Sampler Pattern")
         swapMVar patternStateM True
         putStrLn ("Sampler Pattern swapped")
-        stream pattern
+        tickPattern stream dirt pattern (normMIDIRange val')
       return ()
 
-handleNoteOff stream patternStateM key' = do
+handleNoteOff stream patternStateM patternM key' val' = do
   putStrLn ("Stop Sample" ++ (show key'))
   forkIO $ do
     swapMVar patternStateM False
-    stream silence
+    tickPattern stream dirt makeSilence (normMIDIRange val')
   return ()
 
 keyToIndex ccroot key' = (fromIntegral key') - ccroot
 
-handleKeys ccroot shape v = do
-  case v of
-    Nothing -> return ()
-    Just (TriggerOn key' val') -> do
-      let key'' = keyToIndex ccroot key'
-          streams' = streams shape
-      case key'' of
-        x | x < (length streams') && x >= 0 -> do
-          let patternM = (patternsM shape) !! x
-              patternStateM = (patternStatesM shape) !! x
-          handleNoteOn (streams' !! x) patternStateM patternM key'' val'
-          return ()
-        _ -> putStrLn ("Received out of bounds note on Msg " ++ (show key'') ++ "/" ++ (show $ length streams'))
-    Just (TriggerOff key' val') -> do
-      let key'' = keyToIndex ccroot key'
-          streams' = streams shape
-      case key'' of
-        x | x < (length streams') && x >= 0 -> do
-          let stream = streams' !! x
-              patternM = (patternsM shape) !! x
-              patternStateM = (patternStatesM shape) !! x
-          handleNoteOff stream patternStateM key''
-          return ()
-        _ -> putStrLn ("Received out of bounds noteOff Msg" ++ (show key'))
-    Just (CCChange key' val') -> do
-      let key'' = keyToIndex ccroot key'
-          knobs' = knobs shape
-      case key'' of
-        x | x < (length knobs') && x >= 0 -> do
-          let knob = (knobs' !! x)
-          forkIO $ f knob val'
-          return ()
-            where f knob val' = do
-                                  swapMVar knob val'
-                                  return ()
-        _ -> putStrLn ("Received out of bounds CC Msg" ++ (show key''))
+handleNote ccroot shape key' val' f = do
+  let key'' = keyToIndex ccroot key'
+      streams' = streams shape
+      len = length streams'
+  case key'' of
+    x | x < len && x >= 0 -> do
+      let patternM = (patternsM shape) !! x
+          patternStateM = (patternStatesM shape) !! x
+      f (streams' !! x) patternStateM patternM key'' val'
+      return ()
+    _ -> putStrLn ("Received out of bounds note on Msg " ++ (show key'') ++ "/" ++ (show len))
+
+handleCC ccroot shape key' val' = do
+  let key'' = keyToIndex ccroot key'
+      knobs' = knobs shape
+  case key'' of
+    x | x < (length knobs') && x >= 0 -> do
+      let knob = (knobs' !! x)
+      forkIO $ f knob val'
+      return ()
+        where f knob val' = do
+                swapMVar knob val'
+                return ()
+    _ -> putStrLn ("Received out of bounds CC Msg" ++ (show key''))
+
+
+handleKey ccroot shape (TriggerOn key' val') = handleNote ccroot shape key' val' handleNoteOn
+handleKey ccroot shape (TriggerOff key' val') = handleNote ccroot shape key' val' handleNoteOff
+handleKey ccroot shape (CCChange key' val') = handleCC ccroot shape key' val'
+
+handleKeys'' ccroot shape [x] = [handleKey ccroot shape x]
+handleKeys'' ccroot shape (x:xs) = (handleKeys'' ccroot shape [x]) ++ (handleKeys'' ccroot shape xs)
+
+handleKeys' ccroot shape [] = do return ()
+handleKeys' ccroot shape x = sequence_ $ handleKeys'' ccroot shape x
+
+
+handleKeys ccroot shape Nothing = do return ()
+handleKeys ccroot shape (Just x) = handleKeys' ccroot shape x
+
+
+tickPattern stream shape iopattern len = do
+  pattern <- iopattern
+  tempo <- readMVar =<< tempoMVar
+  tOnTick stream shape pattern tempo 0 len -- if the pattern is currently triggered, directly evaluate its trigger to update the playing pattern
+
 
 handlePatternUpdate stream pattern True = do
   putStrLn ("Retrigger running sampler with new Pattern")
-  stream pattern -- if the pattern is currently triggered, directly evaluate its trigger to update the playing pattern
+  tickPattern stream dirt pattern 1
   return True
 
 handlePatternUpdate stream pattern False =
@@ -162,29 +186,73 @@ updatePattern stream patternStateM patternM pattern = do
   state <- readMVar patternStateM
   state' <- handlePatternUpdate stream pattern state
   putStrLn ("Updating Pattern")
+--  swapMVar knobPatternM knobPatterns
   swapMVar patternM pattern
-  return pattern
+  pattern
+
+tStart :: String -> Int -> OscShape -> IO (MVar (OscPattern))
+tStart address port shape
+  = do patternM <- newMVar silence
+       s <- openUDP address port
+       let ot = (onTick s shape patternM) :: Tempo -> Int -> IO ()
+       forkIO $ clockedTick ticksPerCycle ot
+       return patternM
 
 
-readKnobM :: MVar (Int) -> IO (Maybe Int)
+--tOnTick :: UDP -> OscShape -> MVar (OscPattern) -> Tempo -> Int -> IO ()
+tOnTick s shape pattern change ticks len
+  = do
+       let ticks' = (fromIntegral ticks) :: Integer
+           a = ticks' % ticksPerCycle
+           b = (ticks' + 1) % ticksPerCycle
+           messages = mapMaybe
+                      (toMessage s shape change ticks)
+                      (seqToRelOnsets (0, len) pattern)
+       E.catch (sequence_ messages) (\msg -> putStrLn $ "oops " ++ show (msg :: E.SomeException))
+       return ()
+
+
+--samplerstream :: String -> Int -> OscShape -> IO (OscPattern -> IO ())
+samplerstream address port shape =
+  openUDP address port
+  -- = do patternM <- start address port shape
+  --      return $ \p -> do swapMVar patternM p
+  --                        return ()
+
+--readKnobM :: MVar (Int) -> IO (Maybe Int)
 readKnobM m = tryReadMVar m
 
-readKnob :: MVar (Int) -> Maybe Int
-readKnob m = unsafePerformIO $ readKnobM m
+--readKnob :: MVar (Int) -> Maybe Int
+readKnob m = readKnobM m
 
 normMIDIRange :: (Integral a, Fractional b) => a -> b
 normMIDIRange a = (fromIntegral a) / 127
 
-knobPattern :: MVar (Int) -> Pattern Double
-knobPattern m = maybeListToPat [normMIDIRange <$> readKnob m]
+--knobPattern :: MVar (Int) -> Pattern Double
+--knobPattern m = maybeListToPat [normMIDIRange <$> readKnob m]
 
-knobValue :: MVar (Int) -> Rational
-knobValue m = case normMIDIRange <$> readKnob m of
-                Just i -> toRational i
-                Nothing -> 0.0
+--knobValue :: MVar (Int) -> Rational
+-- knobValue m = case normMIDIRange <$> readKnob m of
+--                 Just i -> toRational i
+--                 Nothing -> 0.0
 
-kv = knobValue
-kr = knobPattern
+--kv = knobValue
+--kr = knobPattern
+
+sound' pattern = do
+  return $ sound pattern
+
+makeKnobM knob p' = do v <- readKnob knob
+                       let v' = maybeListToPat [v]
+                       return $ p' v'
+
+makeKnob knob = (\p' -> makeKnobM knob p') :: (Pattern Int -> Pattern a) -> IO (Pattern a)
+
+soundAndKnob pattern knobParam = do k' <- knobParam
+                                    s' <- sound' pattern
+                                    let p' = s' |+| k'
+                                    putStrLn ("Evaluated pattern: " ++ (show p'))
+                                    return $ p'
 
 midiIn name = do
   edev <- getIDForInputDeviceName name
@@ -211,15 +279,20 @@ sampleproxy latency name ccroot = do
     Just dev -> do
       sampleproxy' latency dev ccroot
 
+makeSilence :: IO (Pattern a)
+makeSilence = do return silence
+
 sampleproxy' latency conn ccroot = do
-  patternsM' <- replicateM 8 (newMVar silence)
+  let n_chans = 8
+  streams' <- replicateM n_chans $ samplerstream "127.0.0.1" 7771 dirt
+  patternsM' <- replicateM 8 (newMVar makeSilence)
   patternStatesM' <- replicateM 8 (newMVar False)
   knobs' <- replicateM 8 (newMVar 0)
+  let knobsHandler' = map (makeKnob) knobs'
+--  knobPatternsM' <- replicateM 8 (newMVar [])
   (cps, getNow) <- cpsUtils
-  streams' <- replicateM (length patternsM') dirtStream
-  let streams'' = map (runnow getNow) streams'
-      channelReplacer = zipWith ($) (zipWith ($) (map updatePattern streams'') patternStatesM') patternsM'
-      shape = TShape streams'' patternStatesM' patternsM' knobs' channelReplacer
+  let channelReplacer = zipWith ($) (zipWith ($) (map updatePattern streams') patternStatesM') patternsM'
+      shape = TShape streams' patternStatesM' patternsM' knobs' knobsHandler' channelReplacer
   forkIO $ loop conn ccroot shape
   return shape
     where loop conn ccroot shape = do v <- readCtrl conn
