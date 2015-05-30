@@ -236,10 +236,21 @@ instance MIDIValue Double where
   midiConvert v = normMIDIRange v
 
 
+
+
 soundAndKnob pattern knobParam = do k' <- knobParam
                                     s' <- sound' pattern
                                     let p' = s' |+| k'
                                     return $ p'
+
+playhead knob ratio = (<*>) (playhead' knob ratio)
+
+playhead' knob ratio = do v <- readKnob knob
+                          case v of
+                            Nothing -> return $ (~>) 0
+                            Just v' -> do
+                              let v'' = (ratio *) $ fromIntegral v'
+                              return $ (~>) v''
 
 mergeIO :: IO (Pattern OscMap) -> IO (Pattern OscMap) -> IO (Pattern OscMap)
 mergeIO p1 p2 = do p1' <- p1
