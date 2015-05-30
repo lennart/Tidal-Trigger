@@ -22,7 +22,6 @@ data TriggerShape a b = EmptyTShape |
                         patternStatesM :: [MVar (Bool)],
                         patternsM :: [MVar (IO (Pattern a))],
                         knobs :: [MVar (Int)],
---                        knobsHandler :: [(Pattern b -> Pattern a) -> IO (Pattern a)], -- knob1 - knob8
                         sampler :: [IO (Pattern a) -> IO ()] -- sm1 - sm8
                         }
 
@@ -182,7 +181,6 @@ handlePatternUpdate stream pattern False =
 updatePattern stream patternStateM patternM pattern = do
   state <- readMVar patternStateM
   state' <- handlePatternUpdate stream pattern state
---  swapMVar knobPatternM knobPatterns
   swapMVar patternM pattern
   return ()
 
@@ -208,32 +206,12 @@ tOnTick s shape pattern change ticks len
        return ()
 
 
---samplerstream :: String -> Int -> OscShape -> IO (OscPattern -> IO ())
-samplerstream address port shape =
-  openUDP address port
-  -- = do patternM <- start address port shape
-  --      return $ \p -> do swapMVar patternM p
-  --                        return ()
-
---readKnobM :: MVar (Int) -> IO (Maybe Int)
 readKnobM m = tryReadMVar m
 
---readKnob :: MVar (Int) -> Maybe Int
 readKnob m = readKnobM m
 
 normMIDIRange :: (Integral a, Fractional b) => a -> b
 normMIDIRange a = (fromIntegral a) / 127
-
---knobPattern :: MVar (Int) -> Pattern Double
---knobPattern m = maybeListToPat [normMIDIRange <$> readKnob m]
-
---knobValue :: MVar (Int) -> Rational
--- knobValue m = case normMIDIRange <$> readKnob m of
---                 Just i -> toRational i
---                 Nothing -> 0.0
-
---kv = knobValue
---kr = knobPattern
 
 sound' pattern = do
   return $ sound pattern
@@ -299,8 +277,6 @@ sampleproxy latency name ccroot = do
 
 makeSilence :: IO (Pattern a)
 makeSilence = do return silence
-
-
 
 sampleproxy' latency conn ccroot = do
   let n_chans = 8
