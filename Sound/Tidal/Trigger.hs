@@ -168,7 +168,11 @@ tickPattern stream shape iopattern len = do
   pattern <- iopattern
   now <- getCurrentTime
   let tempo = Tempo now 0 0.5
-  tOnTick stream shape pattern tempo 0 len -- if the pattern is currently triggered, directly evaluate its trigger to update the playing pattern
+  -- interpret any velocity below 10 as 10 so tOnTick will play sometjhing
+  let len' = case len of
+        x | x >= (10%127) -> x
+        _ -> (10%127)
+  tOnTick stream shape pattern tempo 0 len' -- if the pattern is currently triggered, directly evaluate its trigger to update the playing pattern
 
 
 handlePatternUpdate stream pattern True = do
