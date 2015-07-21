@@ -4,14 +4,16 @@ based upon the live coding pattern language [tidal](http://tidal.lurk.org) this 
 
 Tidal Trigger was created to more easily use tidal in an improvising context together with acoustic instruments, leveraging tidals expressiveness via patterns and haskell's functional programming style while being able to instantly react to other musicians not bound to any concept of _tempo_ or a _clock_.
 
-It should fit in between cycle oriented live coding using _vanilla_ tidal and its counterpart for compositions (i.e. sequencing patterns via `seqP`).
+This version allows defining filters for input actions on certain devices to trigger standard functions to interact with a "stack" of samples.
 
-Technically speaking tidal trigger will evaluate one cycle of a pattern and directly send it to the underlying stream via osc. This allows using tidal's standard sampling backend [Dirt](http://github.com/tidalcycles/Dirt) and also talk to MIDI devices via [tidal-midi](http://github.com/tidalcycles/tidal-midi).
+You can push samples to a stack, play the whole stack, play only a fraction of it at a certain point in time, pop the whole stack leaving it empty.
+
+Additionally this adds Serial input and allows registering e.g. Events read from a rotary encoder connected to an arduino.
 
 ## Install
 
 ```shell
-git clone https://github.com/lennart/Tidal-Trigger
+git clone --branch actions https://github.com/lennart/Tidal-Trigger
 cd Tidal-Trigger
 cabal install
 ```
@@ -26,26 +28,19 @@ To make use of Tidal Trigger in emacs, add the following to your `tidal.el` with
 and after loading `cpsUtils`
 
 ```emacs
-(tidal-send-string "let rn = runnow getNow")
-(tidal-send-string "let os = oneshot getNow")
-(tidal-send-string "let os' = oneshot' getNow")
+  (tidal-send-string "stream' <- openUDP \"127.0.0.1\" 7771")
+  (tidal-send-string "let stream'' = (dirt, stream')")
+  (tidal-send-string "trigger <- sampleproxy 1000 \"QUNEO\" \"/dev/tty.usbserial\" stream''")
 ````
 ## Usage
 
-Within a running tidal session use these functions now. Note that the _names_ are arbitrary and depend on your setup, I chose short versions of `runnow`, `oneshot` and `oneshot'` so mine are called `rn`,`os` and `os'` respectively.
+Currently mappings are hardwired, Notes 90 pops the stack playing back all stored samples, notes 68..83 add samples to the stack, 91 adds a rest to the stack and an arduino connected via usb sends rotary encoder values to be used as a jogwheel to play a certain part of the _stack_
 
-```haskell
-rn d1 $ seqP [(2, 4, sound "bd sn")]
-```
-or to simply trigger a pattern one cycle
+## TODO
 
-```haskell
-os d1 $ sound "bd sn"
-```
-which is essentially the same as `runnow getNow d1 $ seqP [(0, 1, sound "bd sn")]`
-
-To trigger a pattern for multiple cycles use `oneshot'` and pass in the number of cycles to play
-
-```haskell
-os' d1 4 $ sound "bd sn"
-```
+- Make mapping arbitrary
+- Allow dirt's params to be controlled via midi/arduino
+- make two stacks
+- allow popping single samples from the stack
+- allow reversing the stack
+- 
