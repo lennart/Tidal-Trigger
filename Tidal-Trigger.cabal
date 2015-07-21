@@ -16,9 +16,14 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     Sound.Tidal.Trigger
-                       Sound.Tidal.Trigger.Device
+  exposed-modules:     Sound.Tidal.Trigger.Context
+                       Sound.Tidal.Trigger.Stream
+                       Sound.Tidal.Trigger.Types
+                       Sound.Tidal.Trigger.MIDIDevice
+                       Sound.Tidal.Trigger.SerialDevice
                        Sound.Tidal.Trigger.Responder
+                       Sound.Tidal.Trigger.Actions
+                       Sound.Tidal.Trigger.Rigs.Sutherland
   -- other-modules:
   -- other-extensions:
   build-depends:       base >=4.7 && <4.8, tidal, hosc, PortMidi, time, bytestring, tidal-midi, containers, serialport
