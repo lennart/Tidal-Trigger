@@ -13,13 +13,13 @@ rig samples notes fs = asMapping $ concat [pads samples notes, fs]
 
 sutherland = rig [
   "bd",
-  "ac:9",
-  "ac:10",
-  "ac:13",
+  "ac",
+  "acs",
+  "btr",
   "btqh",
-  "crm:16",
-  "crs:3",
-  "mrbrm:3",
+  "btsc",
+  "crs",
+  "mrbrs",
   "tploud",
   "clak2",
   "clak3",
@@ -27,9 +27,12 @@ sutherland = rig [
   "sshq",
   "shfq",
   "sclq",
-  "btv:2"
+  "btv"
               ] [68..83] [
   (On 90, Action playStack),
   (On 91, Action pushRest),
-  (SR 1, Action playSlice)
+  (SR 1, Action playSlice),
+  (On 92, Action enterBrackets),
+  (Off 92, Action leaveBrackets),
+  (CC 92, Action pickSample)
   ]

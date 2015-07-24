@@ -3,7 +3,8 @@ module Sound.Tidal.Trigger.Stream (
   tickPatternAt,
   pushStack,
   popStack,
-  readStack
+  readStack,
+  peekFifo
   ) where
 
 import qualified Sound.Tidal.Context as T
@@ -94,11 +95,25 @@ tOnTickAt trig s shape pattern change ticks
 
 -- stack actions
 
+-- FIXME: Why do you use MVars for the stack and modify the trigger directly for the fifo? concurrency?
+
 -- push to pattern stack
 pushStack pattern trig = do
   let stackM = stack trig
+    --  stackMode = peekFifo trig
   stack' <- readMVar stackM
-  swapMVar stackM (concat [stack', [pattern]])
+
+  let stack'' = reverse $ take (fromIntegral $ cycleResolution trig) $ reverse $ concat [stack', [pattern]]
+  -- let stack'' = case stackMode of
+  --   Just '[' ->
+  --     [tail stack', pattern]
+  --   Just x ->
+  --     putStrLn ("Invalid Stack Mode" ++ (show x))
+  --     stack'
+  --   Nothing ->
+
+
+  swapMVar stackM stack''
   return ()
 
 -- empty and return the current stack
@@ -110,6 +125,13 @@ popStack trig = do
 readStack trig = do
   let stackM = stack trig
   readMVar stackM
+
+
+peekFifo trig = do
+  let f = fifo trig
+  case length f of
+       0 -> Nothing
+       _ -> Just $ head f
 
 -- step b
 -- allow multiple input types triggers (hook up arduino or other midi controller to control "time" via rotary, to avoid skipping)
@@ -131,7 +153,9 @@ readStack trig = do
 {-
 
 - make each action able to change the trigger (i.e. the state)
+
 - add a brace mode stack
+
 - change the behavior of other triggers according to current brace top of brace stack (i.e. make new samples be pushed into a "substack" that will be merged into a [] or {} group when the brace mode is left
 - add actions on note on to enter and note off to leave brace modes
 

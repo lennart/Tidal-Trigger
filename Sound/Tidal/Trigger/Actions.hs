@@ -6,11 +6,13 @@ import Sound.Tidal.Trigger.Stream
 import Sound.Tidal.Trigger.Types
 import qualified Data.Map.Strict as Map
 
+-- Mapping helper
 asMapping fs = Map.fromList fs
 
 -- value conversion helper
 midi2norm :: (Integral a, Fractional b) => a -> b
 midi2norm a = (fromIntegral a) / 127
+
 
 -- push sample to stack and trigger it
 triggerSample sample e trig = do
@@ -19,12 +21,12 @@ triggerSample sample e trig = do
       pattern = (T.sound (T.p sample) T.|+| T.gain (T.p $ show vol))
   tickPattern stream' shape pattern 0
   pushStack pattern trig
-  return ()
+  return trig
 
 -- allow adding rests
 pushRest e trig = do
   pushStack (T.sound $ T.p "~") trig
-  return ()
+  return trig
 
 -- pop stack and playback
 playStack e trig = do
@@ -32,7 +34,7 @@ playStack e trig = do
   stack' <- popStack trig
   let pattern = T.cat stack'
   tickPattern stream' shape pattern 0
-  return ()
+  return trig
 
 -- What is time? Time is standing still until you move it!
 -- step a
@@ -41,4 +43,17 @@ playSlice e trig = do
   let (shape, stream') = dest trig
       val' = (val e)
   stack' <- readStack trig
-  tickPatternAt trig stream' shape (T.cat stack') $ val'
+  tickPatternAt trig stream' shape (T.pick T.<$> (T.cat stack') T.<*> (T.p $ show $ pick trig)) $ val'
+  return trig
+
+pickSample e trig = do
+  let val' = (val e)
+  return trig { pick = (floor $ (((fromIntegral $ val') / 127.0) * 16)) }
+
+enterBrackets e trig = do
+  let trig' = trig { fifo = (['['] ++ (fifo trig)) }
+  return trig'
+
+leaveBrackets e trig = do
+  let trig' = trig { fifo = (dropWhile (/= '[') (fifo trig)) }
+  return trig'

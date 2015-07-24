@@ -21,8 +21,8 @@ handleKey trig e = do
   case Map.member form mapping' of
     True -> do
       let f = (runA (mapping' Map.! form))
-      f e trig
-      return trig
+      trig' <- f e trig
+      return trig'
     False -> do
       return trig
 
@@ -34,7 +34,7 @@ triggerproxy latency cycleres mapping inputReaders output = do
 
 triggerproxy' latency cycleres mapping readers output = do
   stack' <- newMVar []
-  let trig = Trigger output stack' mapping cycleres
+  let trig = Trigger output stack' mapping cycleres [] 0
   forkIO $ loop readers trig
   return trig
     where loop readers trig = do

@@ -12,7 +12,7 @@ data TriggerEvent = TriggerOn { key :: Int, val :: Int } |
                     Serial { key :: Int, val :: Int }
                   deriving (Show)
 
-data Action a = Action { runA :: TriggerEvent -> Trigger a -> IO () }
+data Action a = Action { runA :: TriggerEvent -> Trigger a -> IO (Trigger a) }
 
 data TriggerForm = On Int | Off Int | CC Int | SR Int deriving (Show, Ord, Eq)
 
@@ -21,5 +21,7 @@ data Trigger a = EmptyTrigger |
                         dest :: (T.OscShape,UDP),
                         stack :: MVar ([T.Pattern a]),
                         mapping :: Map.Map TriggerForm (Action a),
-                        cycleResolution :: Integer
+                        cycleResolution :: Integer,
+                        fifo :: [Char],
+                        pick :: Int
                         }
