@@ -34,7 +34,7 @@ triggerproxy latency cycleres mapping inputReaders output = do
 
 triggerproxy' latency cycleres mapping readers output = do
   stack' <- newMVar []
-  let trig = Trigger output stack' mapping cycleres [] 0
+  let trig = Trigger output stack' [] mapping cycleres [] 0
   forkIO $ loop readers trig
   return trig
     where loop readers trig = do

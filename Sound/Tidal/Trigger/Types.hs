@@ -19,7 +19,8 @@ data TriggerForm = On Int | Off Int | CC Int | SR Int deriving (Show, Ord, Eq)
 data Trigger a = EmptyTrigger |
                       Trigger {
                         dest :: (T.OscShape,UDP),
-                        stack :: MVar ([T.Pattern a]),
+                        stack :: MVar ([String]),
+                        vstack :: [Double],
                         mapping :: Map.Map TriggerForm (Action a),
                         cycleResolution :: Integer,
                         fifo :: [Char],

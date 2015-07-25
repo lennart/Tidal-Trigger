@@ -4,7 +4,8 @@ module Sound.Tidal.Trigger.Stream (
   pushStack,
   popStack,
   readStack,
-  peekFifo
+  peekFifo,
+  pushVStack
   ) where
 
 import qualified Sound.Tidal.Context as T
@@ -115,6 +116,11 @@ pushStack pattern trig = do
 
   swapMVar stackM stack''
   return ()
+
+pushVStack v trig = do
+  let vstack' = vstack trig
+
+  return trig { vstack = vstack' ++ [v] }
 
 -- empty and return the current stack
 popStack trig = do

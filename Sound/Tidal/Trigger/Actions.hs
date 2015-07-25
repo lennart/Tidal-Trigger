@@ -2,6 +2,8 @@ module Sound.Tidal.Trigger.Actions where
 
 import qualified Sound.Tidal.Context as T
 
+
+import Data.List
 import Sound.Tidal.Trigger.Stream
 import Sound.Tidal.Trigger.Types
 import qualified Data.Map.Strict as Map
@@ -18,21 +20,21 @@ midi2norm a = (fromIntegral a) / 127
 triggerSample sample e trig = do
   let vol = midi2norm $ val e
       (shape, stream') = dest trig
-      pattern = (T.sound (T.p sample) T.|+| T.gain (T.p $ show vol))
-  tickPattern stream' shape pattern 0
-  pushStack pattern trig
+  tickPattern stream' shape ((T.sound (T.p sample)) T.|+| T.gain (T.p $ show vol)) 0
+  pushStack sample trig
+  pushVStack vol trig
   return trig
 
 -- allow adding rests
 pushRest e trig = do
-  pushStack (T.sound $ T.p "~") trig
+  pushStack "~" trig
   return trig
 
 -- pop stack and playback
 playStack e trig = do
   let (shape, stream') = dest trig
   stack' <- popStack trig
-  let pattern = T.sound $ T.cat stack'
+  let pattern = T.sound $ T.p $ intercalate " " stack'
   tickPattern stream' shape pattern 0
   return trig
 
@@ -44,7 +46,7 @@ playSlice e trig = do
       val' = (val e)
       pick' = pick trig
   stack' <- readStack trig
-  let stack'' = T.cat stack'
+  let stack'' = T.p $ intercalate " " stack'
       pick'' = (T.p $ show pick') :: T.Pattern Int
       snd = T.pick T.<$> stack'' T.<*> pick''
   tickPatternAt trig stream' shape (T.sound snd) val'

@@ -1,3 +1,5 @@
+
+
 module Sound.Tidal.Trigger.Rigs.Sutherland (sutherland) where
 
 import Sound.Tidal.Trigger.Types
@@ -33,6 +35,6 @@ sutherland = rig [
   (On 91, Action pushRest),
   (SR 1, Action playSlice),
   (On 92, Action enterBrackets),
-  (Off 92, Action leaveBrackets),
-  (CC 92, Action pickSample)
+  (Off 92, Action leaveBrackets)
+--  (CC 92, Action pickSample)
   ]
