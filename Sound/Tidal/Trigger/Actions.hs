@@ -32,7 +32,7 @@ pushRest e trig = do
 playStack e trig = do
   let (shape, stream') = dest trig
   stack' <- popStack trig
-  let pattern = T.cat stack'
+  let pattern = T.sound $ T.cat stack'
   tickPattern stream' shape pattern 0
   return trig
 
@@ -42,13 +42,18 @@ playStack e trig = do
 playSlice e trig = do
   let (shape, stream') = dest trig
       val' = (val e)
+      pick' = pick trig
   stack' <- readStack trig
-  tickPatternAt trig stream' shape (T.pick T.<$> (T.cat stack') T.<*> (T.p $ show $ pick trig)) $ val'
+  let stack'' = T.cat stack'
+      pick'' = (T.p $ show pick') :: T.Pattern Int
+      snd = T.pick T.<$> stack'' T.<*> pick''
+  tickPatternAt trig stream' shape (T.sound snd) val'
   return trig
 
 pickSample e trig = do
   let val' = (val e)
-  return trig { pick = (floor $ (((fromIntegral $ val') / 127.0) * 16)) }
+  -- return trig { pick = (floor $ (((fromIntegral $ val') / 127.0) * 16)) }
+  return trig { pick = mod val' 16 }
 
 enterBrackets e trig = do
   let trig' = trig { fifo = (['['] ++ (fifo trig)) }
