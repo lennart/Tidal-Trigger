@@ -3,7 +3,6 @@ module Sound.Tidal.Trigger.Stream (
   tickPatternAt,
   pushStack,
   popStack,
-  readStack,
   peekFifo,
   pushVStack
   ) where
@@ -18,6 +17,7 @@ import Foreign.C
 import Data.List
 import Data.Maybe
 import Data.Time
+import Data.Time.Clock.POSIX
 import qualified Data.Map.Strict as Map
 
 import Sound.OSC.FD
@@ -31,16 +31,16 @@ import Sound.Tidal.Trigger.Types
 
 -- generics
 
-tickPattern stream shape pattern vel = do
+tickPattern trig stream shape pattern vel = do
   let pattern' = pattern -- |+| ((tvel shape) vel)
   now <- getCurrentTime
-  let tempo = T.Tempo now 0 0.125
-  tOnTick stream shape pattern tempo 0 1 -- len' -- if the pattern is currently triggered, directly evaluate its trigger to update the playing pattern
+  let tempo' = T.Tempo now 0 (tempo trig)
+  tOnTick stream shape pattern tempo' 0 1
 
 tickPatternAt trig stream shape pattern tick = do
   now <- getCurrentTime
-  let tempo = T.Tempo now (fromIntegral tick) 0.125
-  tOnTickAt trig stream shape pattern tempo tick
+  let tempo' = T.Tempo now (fromIntegral tick) 0.125 -- (tempo trig)
+  tOnTickAt trig stream shape pattern tempo' tick
 
 tOnTick s shape pattern change ticks len
   = do
@@ -54,41 +54,51 @@ tOnTick s shape pattern change ticks len
        return ()
 
 
-toMessageAt s shape change tpc tick (o, m) =
+toMessageAt s shape change tpc tick now (o, m) =
   do m' <- applyShape' shape m
-     let cycleD = ((fromIntegral tick) / (fromIntegral tpc)) :: Double
+     let oscdata = cpsPrefix ++ preamble shape ++ (parameterise $ catMaybes $ mapMaybe (\x -> Map.lookup x m') (params shape))
+   --  putStrLn ("time: " ++ (show logicalNow) ++ "\tperiod: " ++ (show logicalPeriod) ++ "\tons: " ++ (show logicalOnset))
+     return $ mkmsg oscdata
+       where
+         parameterise :: [Datum] -> [Datum]
+         parameterise ds | namedParams shape =
+           mergelists (map (string . name) (params shape)) ds
+                         | otherwise = ds
+         cpsPrefix | cpsStamp shape = [float (T.cps change)]
+                   | otherwise = []
+         nudge = maybe 0 (toF) (Map.lookup (F "nudge" (Just 0)) m)
+         toF (Just (Float f)) = float2Double f
+         toF _ = 0
+         cycleD = ((fromIntegral tick) / (fromIntegral tpc)) :: Double
          logicalNow = (T.logicalTime change cycleD)
          logicalPeriod = (T.logicalTime change (cycleD + (1/(fromIntegral tpc)))) - logicalNow
          logicalOnset = logicalNow + (logicalPeriod * o) + (latency shape) + nudge
+--     let logicalNow = realToFrac $ utcTimeToPOSIXSeconds now
+  --       logicalPeriod =
          sec = floor logicalOnset
          usec = floor $ 1000000 * (logicalOnset - (fromIntegral sec))
-         oscdata = cpsPrefix ++ preamble shape ++ (parameterise $ catMaybes $ mapMaybe (\x -> Map.lookup x m') (params shape))
-         oscdata' = ((int32 sec):(int32 usec):oscdata)
-         osc | timestamp shape == BundleStamp = sendOSC s $ Bundle (ut_to_ntpr logicalOnset) [Message (path shape) oscdata]
-             | timestamp shape == MessageStamp = sendOSC s $ Message (path shape) oscdata'
-             | otherwise = doAt logicalOnset $ sendOSC s $ Message (path shape) oscdata
-     return osc
-     where
-       parameterise :: [Datum] -> [Datum]
-       parameterise ds | namedParams shape =
-                               mergelists (map (string . name) (params shape)) ds
-                       | otherwise = ds
-       cpsPrefix | cpsStamp shape = [float (T.cps change)]
-                 | otherwise = []
-       nudge = maybe 0 (toF) (Map.lookup (F "nudge" (Just 0)) m)
-       toF (Just (Float f)) = float2Double f
-       toF _ = 0
+         mkdata x = ((int32 sec):(int32 usec):x)
+
+         mkmsg x | timestamp shape == BundleStamp = sendOSC s $ Bundle (ut_to_ntpr logicalOnset) [Message (path shape) x]
+             | timestamp shape == MessageStamp = sendOSC s $ Message (path shape) (mkdata x)
+             | otherwise = doAt logicalOnset $ sendOSC s $ Message (path shape) x
 
 tOnTickAt trig s shape pattern change ticks
   = do
-       let ticks' = (fromIntegral ticks) :: Integer
+       now <- getCurrentTime
+       let ticks' = fromIntegral ticks :: Integer
            tpc = cycleResolution trig
-           a = ticks' T.% tpc
-           b = (ticks' + 1) T.% tpc
-           ons = (T.seqToRelOnsets (a, b) pattern)
+           a = ticks' T.% (fromIntegral tpc)
+           b = (ticks' + 1) T.% (fromIntegral tpc)
+           ons = T.seqToRelOnsets (a, b) pattern
+           -- only select the first message, so we only emit one sample per tick of the rotary
+           ons' = case length ons of
+             0 -> []
+             _ -> [head ons]
            messages = mapMaybe
-                      (toMessageAt s shape change tpc ticks)
+                      (toMessageAt s shape change tpc ticks' now)
                       ons
+       putStrLn ("OnTick: " ++ (show ticks'))
        E.catch (sequence_ messages) (\msg -> putStrLn $ "oops " ++ show (msg :: E.SomeException))
        return ()
 
@@ -96,42 +106,20 @@ tOnTickAt trig s shape pattern change ticks
 
 -- stack actions
 
--- FIXME: Why do you use MVars for the stack and modify the trigger directly for the fifo? concurrency?
 
 -- push to pattern stack
-pushStack pattern trig = do
-  let stackM = stack trig
-    --  stackMode = peekFifo trig
-  stack' <- readMVar stackM
-
-  let stack'' = reverse $ take (fromIntegral $ cycleResolution trig) $ reverse $ concat [stack', [pattern]]
-  -- let stack'' = case stackMode of
-  --   Just '[' ->
-  --     [tail stack', pattern]
-  --   Just x ->
-  --     putStrLn ("Invalid Stack Mode" ++ (show x))
-  --     stack'
-  --   Nothing ->
-
-
-  swapMVar stackM stack''
-  return ()
+pushStack sample trig = do
+  let stack' = stack trig
+  return $ trig { stack = ([sample] ++ stack') }
 
 pushVStack v trig = do
   let vstack' = vstack trig
 
-  return trig { vstack = vstack' ++ [v] }
+  return $ trig { vstack = [v] ++ vstack' }
 
--- empty and return the current stack
+-- return trigger with emptied stack
 popStack trig = do
-  let stackM = stack trig
-  swapMVar stackM []
-
---
-readStack trig = do
-  let stackM = stack trig
-  readMVar stackM
-
+  return $ trig { stack = [] }
 
 peekFifo trig = do
   let f = fifo trig
@@ -158,7 +146,7 @@ peekFifo trig = do
 -- allow entering braces mode (e.g. for [], {}, or () in case of poly rythms) while holding another (non drumpad) button
 {-
 
-- make each action able to change the trigger (i.e. the state)
+- make each action able to change the trigger (i.e. the state) / check
 
 - add a brace mode stack
 

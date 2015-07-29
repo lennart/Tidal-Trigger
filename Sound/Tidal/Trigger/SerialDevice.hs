@@ -11,8 +11,8 @@ import Sound.Tidal.Trigger.Types
 serialIn port = do
   hOpenSerial port defaultSerialSettings
 
-handleSerialEvent str = Serial 1 ((read str) :: Int)
+handleSerialEvent str = zipWith Serial [1..] ((map read $ words str) :: [Int])
 
 serialReader dev = do
   e <- tryJust (guard . isEOFError) (hGetLine dev)
-  return $ either (const []) ((replicate 1).handleSerialEvent) e
+  return $ either (const []) (handleSerialEvent) e

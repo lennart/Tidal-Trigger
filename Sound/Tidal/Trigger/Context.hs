@@ -1,4 +1,6 @@
-module Sound.Tidal.Trigger.Context where
+module Sound.Tidal.Trigger.Context (
+  trigger
+                                   ) where
 
 import qualified Data.Map.Strict as Map
 import Control.Monad
@@ -28,13 +30,25 @@ handleKey trig e = do
 
 
 
-triggerproxy latency cycleres mapping inputReaders output = do
-  readers <- sequence inputReaders
-  triggerproxy' latency cycleres mapping readers output
 
-triggerproxy' latency cycleres mapping readers output = do
-  stack' <- newMVar []
-  let trig = Trigger output stack' [] mapping cycleres [] 0
+trigger latency mapping inputReaders output = do
+  readers <- sequence inputReaders
+  trigger' latency mapping readers output
+
+
+trigger' latency rig readers output = do
+  let trig = Trigger {
+        dest = output,
+        stack = [],
+        vstack = [],
+        playhead = 0,
+        dir = CW,
+        mapping = rig,
+        cycleResolution = cycleres,
+        fifo = [],
+        pick = 0,
+        tempo = 0.125
+        }
   forkIO $ loop readers trig
   return trig
     where loop readers trig = do
@@ -44,3 +58,4 @@ triggerproxy' latency cycleres mapping readers output = do
           act trig = do
             events <- liftM concat $ sequence readers
             foldM handleKey trig events
+          cycleres = 8 -- default to mainstream beats per cycle
