@@ -15,7 +15,7 @@ asMapping fs = Map.fromList fs
 midi2norm :: (Integral a, Fractional b) => a -> b
 midi2norm a = (fromIntegral a) / 127
 
-
+{-
 -- push sample to stack and trigger it
 triggerSample sample e trig = do
   let vol = midi2norm $ val e
@@ -95,3 +95,4 @@ setTempo e trig = do
       val' = val e
       val'' = fromIntegral $ mod val' 500
       tempo' = 1 - (val'' / 500)
+-}

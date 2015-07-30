@@ -2,7 +2,7 @@ module Sound.Tidal.Trigger.MIDIDevice where
 
 import qualified Sound.PortMidi as PM
 import Sound.Tidal.Trigger.Types
-
+import Data.List
 
 --withPortMidi = bracket_ PM.initialize PM.terminate
 
@@ -101,19 +101,21 @@ midiReader dev = do
         Nothing -> return []
 
 
-parseEvent x = (s, m, key', val')
-  where m = PM.message x
-        s = PM.status m
-        key' = fromIntegral $ PM.data1 m
-        val' = fromIntegral $ PM.data2 m
+parseEvent x = TriggerEvent (intercalate ":" ["midi",show s, show key']) i -- (s, m, key', val')
+    where
+      m = PM.message x
+      s = PM.status m
+      key' = fromIntegral $ PM.data1 m
+      i = IVInt val'
+      val' = fromIntegral $ PM.data2 m
 
 
-handleEvent' (0x90, m, key', 0) = handleEvent' (0x80, m, key', 0)
-handleEvent' (0x90, m, key', val') = TriggerOn key' val'
-handleEvent' (0x80, m, key', val') = TriggerOff key' val'
-handleEvent' (cc, m, key', val') = CCChange key' val'
+-- handleEvent' (0x90, m, key', 0) = handleEvent' (0x80, m, key', 0)
+-- handleEvent' (0x90, m, key', val') = TriggerOn key' val'
+-- handleEvent' (0x80, m, key', val') = TriggerOff key' val'
+-- handleEvent' (cc, m, key', val') = CCChange key' val'
 
-handleEvent x = handleEvent' $ parseEvent x
+handleEvent x = parseEvent x
 
 handleEvents [] = Nothing
 handleEvents x = Just $ handleEvents' x
