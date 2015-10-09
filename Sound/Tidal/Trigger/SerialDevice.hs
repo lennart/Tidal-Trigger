@@ -6,12 +6,13 @@ import System.Hardware.Serialport
 import Control.Exception (tryJust)
 import Control.Monad (guard)
 
+import Sound.Tidal.Trigger.Parse
 import Sound.Tidal.Trigger.Types
 
 serialIn port = do
   hOpenSerial port defaultSerialSettings
 
-handleSerialEvent str = zipWith TriggerEvent (map (((++) "serial:").show) [1..]) ((map read $ words str) :: [Input])
+handleSerialEvent str = zipWith TriggerEvent (map (((++) "serial:").show) [1..]) (parseInput str)
 
 serialReader dev = do
   e <- tryJust (guard . isEOFError) (hGetLine dev)

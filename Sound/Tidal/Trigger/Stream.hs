@@ -1,10 +1,11 @@
 module Sound.Tidal.Trigger.Stream (
   tickPattern,
-  tickPatternAt,
-  pushStack,
-  popStack,
-  peekFifo,
-  pushVStack
+  trigState
+--  tickPatternAt,
+  -- pushStack,
+  -- popStack,
+  -- peekFifo,
+  -- pushVStack
   ) where
 
 import qualified Sound.Tidal.Context as T
@@ -34,18 +35,23 @@ import Sound.Tidal.Trigger.Types
 tickPattern trig stream shape pattern vel = do
   let pattern' = pattern -- |+| ((tvel shape) vel)
   now <- getCurrentTime
-  let tempo' = T.Tempo now 0 (tempo trig)
+  l <- T.getLatency
+  let tempo' = T.Tempo now 0 (tempo trig) False l
   tOnTick stream shape pattern tempo' 0 1
 
-tickPatternAt trig stream shape pattern tick = do
-  now <- getCurrentTime
-  let tempo' = T.Tempo now (fromIntegral tick) 0.125 -- (tempo trig)
-  tOnTickAt trig stream shape pattern tempo' tick
+-- tickPatternAt trig stream shape pattern tick = do
+--   now <- getCurrentTime
+--   let tempo' = T.Tempo now (fromIntegral tick) 0.125 -- (tempo trig)
+--   tOnTickAt trig stream shape pattern tempo' tick
+
+trigState = T.state "127.0.0.1" 7771 T.dirt
+
+
 
 tOnTick s shape pattern change ticks len
   = do
        let ticks' = (fromIntegral ticks) :: Integer
-           a = ticks' T.% T.ticksPerCycle
+           a      = ticks' T.% T.ticksPerCycle
            b = (ticks' + 1) T.% T.ticksPerCycle
            messages = mapMaybe
                       (T.toMessage s shape change ticks)
@@ -54,53 +60,53 @@ tOnTick s shape pattern change ticks len
        return ()
 
 
-toMessageAt s shape change tpc tick now (o, m) =
-  do m' <- applyShape' shape m
-     let oscdata = cpsPrefix ++ preamble shape ++ (parameterise $ catMaybes $ mapMaybe (\x -> Map.lookup x m') (params shape))
-   --  putStrLn ("time: " ++ (show logicalNow) ++ "\tperiod: " ++ (show logicalPeriod) ++ "\tons: " ++ (show logicalOnset))
-     return $ mkmsg oscdata
-       where
-         parameterise :: [Datum] -> [Datum]
-         parameterise ds | namedParams shape =
-           mergelists (map (string . name) (params shape)) ds
-                         | otherwise = ds
-         cpsPrefix | cpsStamp shape = [float (T.cps change)]
-                   | otherwise = []
-         nudge = maybe 0 (toF) (Map.lookup (F "nudge" (Just 0)) m)
-         toF (Just (Float f)) = float2Double f
-         toF _ = 0
-         cycleD = ((fromIntegral tick) / (fromIntegral tpc)) :: Double
-         logicalNow = (T.logicalTime change cycleD)
-         logicalPeriod = (T.logicalTime change (cycleD + (1/(fromIntegral tpc)))) - logicalNow
-         logicalOnset = logicalNow + (logicalPeriod * o) + (latency shape) + nudge
---     let logicalNow = realToFrac $ utcTimeToPOSIXSeconds now
-  --       logicalPeriod =
-         sec = floor logicalOnset
-         usec = floor $ 1000000 * (logicalOnset - (fromIntegral sec))
-         mkdata x = ((int32 sec):(int32 usec):x)
+-- toMessageAt s shape change tpc tick now (o, m) =
+--   do m' <- applyShape' shape m
+--      let oscdata = cpsPrefix ++ preamble shape ++ (parameterise $ catMaybes $ mapMaybe (\x -> Map.lookup x m') (params shape))
+--    --  putStrLn ("time: " ++ (show logicalNow) ++ "\tperiod: " ++ (show logicalPeriod) ++ "\tons: " ++ (show logicalOnset))
+--      return $ mkmsg oscdata
+--        where
+--          parameterise :: [Datum] -> [Datum]
+--          parameterise ds | namedParams shape =
+--            mergelists (map (string . name) (params shape)) ds
+--                          | otherwise = ds
+--          cpsPrefix | cpsStamp shape = [float (T.cps change)]
+--                    | otherwise = []
+--          nudge = maybe 0 (toF) (Map.lookup (F "nudge" (Just 0)) m)
+--          toF (Just (Float f)) = float2Double f
+--          toF _ = 0
+--          cycleD = ((fromIntegral tick) / (fromIntegral tpc)) :: Double
+--          logicalNow = (T.logicalTime change cycleD)
+--          logicalPeriod = (T.logicalTime change (cycleD + (1/(fromIntegral tpc)))) - logicalNow
+--          logicalOnset = logicalNow + (logicalPeriod * o) + (latency shape) + nudge
+-- --     let logicalNow = realToFrac $ utcTimeToPOSIXSeconds now
+--   --       logicalPeriod =
+--          sec = floor logicalOnset
+--          usec = floor $ 1000000 * (logicalOnset - (fromIntegral sec))
+--          mkdata x = ((int32 sec):(int32 usec):x)
 
-         mkmsg x | timestamp shape == BundleStamp = sendOSC s $ Bundle (ut_to_ntpr logicalOnset) [Message (path shape) x]
-             | timestamp shape == MessageStamp = sendOSC s $ Message (path shape) (mkdata x)
-             | otherwise = doAt logicalOnset $ sendOSC s $ Message (path shape) x
+--          mkmsg x | timestamp shape == BundleStamp = sendOSC s $ Bundle (ut_to_ntpr logicalOnset) [Message (path shape) x]
+--              | timestamp shape == MessageStamp = sendOSC s $ Message (path shape) (mkdata x)
+--              | otherwise = doAt logicalOnset $ sendOSC s $ Message (path shape) x
 
-tOnTickAt trig s shape pattern change ticks
-  = do
-       now <- getCurrentTime
-       let ticks' = fromIntegral ticks :: Integer
-           tpc = cycleResolution trig
-           a = ticks' T.% (fromIntegral tpc)
-           b = (ticks' + 1) T.% (fromIntegral tpc)
-           ons = T.seqToRelOnsets (a, b) pattern
-           -- only select the first message, so we only emit one sample per tick of the rotary
-           ons' = case length ons of
-             0 -> []
-             _ -> [head ons]
-           messages = mapMaybe
-                      (toMessageAt s shape change tpc ticks' now)
-                      ons
-       putStrLn ("OnTick: " ++ (show ticks'))
-       E.catch (sequence_ messages) (\msg -> putStrLn $ "oops " ++ show (msg :: E.SomeException))
-       return ()
+-- tOnTickAt trig s shape pattern change ticks
+--   = do
+--        now <- getCurrentTime
+--        let ticks' = fromIntegral ticks :: Integer
+--            tpc = cycleResolution trig
+--            a = ticks' T.% (fromIntegral tpc)
+--            b = (ticks' + 1) T.% (fromIntegral tpc)
+--            ons = T.seqToRelOnsets (a, b) pattern
+--            -- only select the first message, so we only emit one sample per tick of the rotary
+--            ons' = case length ons of
+--              0 -> []
+--              _ -> [head ons]
+--            messages = mapMaybe
+--                       (toMessageAt s shape change tpc ticks' now)
+--                       ons
+--        putStrLn ("OnTick: " ++ (show ticks'))
+--        E.catch (sequence_ messages) (\msg -> putStrLn $ "oops " ++ show (msg :: E.SomeException))
+--        return ()
 
 
 
@@ -108,24 +114,24 @@ tOnTickAt trig s shape pattern change ticks
 
 
 -- push to pattern stack
-pushStack sample trig = do
-  let stack' = stack trig
-  return $ trig { stack = ([sample] ++ stack') }
+-- pushStack sample trig = do
+--   let stack' = stack trig
+--   return $ trig { stack = ([sample] ++ stack') }
 
-pushVStack v trig = do
-  let vstack' = vstack trig
+-- pushVStack v trig = do
+--   let vstack' = vstack trig
 
-  return $ trig { vstack = [v] ++ vstack' }
+--   return $ trig { vstack = [v] ++ vstack' }
 
--- return trigger with emptied stack
-popStack trig = do
-  return $ trig { stack = [] }
+-- -- return trigger with emptied stack
+-- popStack trig = do
+--   return $ trig { stack = [] }
 
-peekFifo trig = do
-  let f = fifo trig
-  case length f of
-       0 -> Nothing
-       _ -> Just $ head f
+-- peekFifo trig = do
+--   let f = fifo trig
+--   case length f of
+--        0 -> Nothing
+--        _ -> Just $ head f
 
 -- step b
 -- allow multiple input types triggers (hook up arduino or other midi controller to control "time" via rotary, to avoid skipping)

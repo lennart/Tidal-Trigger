@@ -1,10 +1,14 @@
-module Sound.Tidal.Trigger.Rigs.Sutherland (sutherland) where
+module Sound.Tidal.Trigger.Rigs.Sutherland (sutherland, weld) where
 
 import Data.Ratio
+import Data.Maybe
+import qualified Data.Map.Strict as Map
 import Sound.Tidal.Trigger.Types
 import Sound.Tidal.Trigger.Actions
 
-import Sound.Tidal.Context as T
+import qualified Sound.OSC.FD as O
+
+import qualified Sound.Tidal.Context as T
 
 -- pads samples notes = zip notes' samples'
 --   where
@@ -19,14 +23,38 @@ import Sound.Tidal.Context as T
 
 --fmap (\x y -> (On x, (Action).triggerSample y)) ((+68) <$> (c 4 4)) "clak2/crs"
 
-r = replicate
-
 
 --rig :: Rig Material
 --rig (s,d,r) = Rig ()
 
 --rig samples  = asMapping $ concat [pads samples notes, fs]
 sutherland = 2
+
+
+-- list of params, the given input will work on
+weld :: Input -> T.OscPattern -> [(T.Param, Input -> T.OscPattern)]
+weld i p = makeActions oscmap i
+  where
+     oscmap = map snd $ T.seqToRelOnsets (0, 1) p
+
+-- currently only acts upon the first oscmap in a pattern, which seems to be enough for finding out matching actions
+makeActions :: [T.OscMap] -> Input -> [(T.Param, Input -> T.OscPattern)]
+makeActions [] i = []
+makeActions (o:[]) i = catMaybes $ zipWith weld' keys is
+  where
+    is = replicate (length keys) i
+    keys = Map.keys o
+makeActions (o:os) i = makeActions [o] i
+
+weld' :: T.Param -> Input -> Maybe (T.Param, Input -> T.OscPattern)
+weld' p@(T.I n d) (IVInt i) = Just $ (p, f p)
+  where
+    f prm = (\x -> (T.listToPat $ replicate 1 $ Map.singleton prm $ mval' x)) :: Input -> T.OscPattern
+    mval' x = fmap (O.int32 . fromIntegral) $ mval x
+    mval x = (i_get x :: Maybe Int)
+weld' p@(T.F n d) (IVDouble i) = Just $ (p, \x ->  (T.listToPat $ replicate 1 $ Map.singleton p $ fmap (O.float . realToFrac) (i_get x :: Maybe Double)))
+weld' p@(T.S n d) (IVString i) = Just $ (p, \x -> (T.listToPat $ replicate 1 $ Map.singleton p $ fmap (O.string) (i_get x :: Maybe String)))
+weld' x y = Nothing
 --sutherland = rig  [
 {-
 you do not want to know or edit midi cc numbers, osc paths or serial protocols

@@ -7,23 +7,19 @@ import Data.Ratio
 import qualified Sound.Tidal.Context as T
 import Control.Concurrent
 
+data Input = IVInteger Integer | IVInt Int | IVDouble Double | IVString String deriving (Eq, Show, Read)
 
--- data TriggerEvent = TriggerOn { path :: Int, val :: [] } |
---                     TriggerOff { key :: Int, val :: Int } |
---                     CCChange { key :: Int, val :: Int} |
---                     Serial { key :: Int, val :: Int }
---                   deriving (Show)
-
-data Input = IVInt { i_int :: Int } | IVDouble { i_double :: Double } | IVString { i_string :: String } deriving (Eq, Show, Read)
-
-
-class InputValue a where
+class (Read a) => InputValue a where
   i_put :: a -> Input
   i_get :: Input -> Maybe a
 
 instance InputValue Int where
   i_put = IVInt
   i_get i = case i of {IVInt x -> Just x; _ -> Nothing }
+
+instance InputValue Integer where
+  i_put = IVInteger
+  i_get i = case i of {IVInteger x -> Just x; _ -> Nothing }
 
 instance InputValue Double where
   i_put = IVDouble
@@ -33,26 +29,12 @@ instance InputValue [Char] where
   i_put = IVString
   i_get i = case i of {IVString x -> Just x; _ -> Nothing }
 
---data TriggerValue = Int | String | Double deriving (Show)
+-- instance Read a => Read (InputValue a) where
+--   readsPrec d r
 
-data TriggerEvent = TriggerEvent String Input deriving (Show)
+type Path = String
 
---handle rig e =
-
-
-
-type ActionArgs = ([Variant], Material)
-
-newtype Action = Action { runA :: TriggerEvent -> ActionArgs }
-
-
-
-                 -- | Action2 { runB :: b -> a } | Action2b { runC :: c -> a } | Action2c { runD :: d -> a }
-
-
-                -- TriggerEvent -> Trigger a -> IO (Trigger a) }
-
-data TriggerForm = On Int | Off Int | CC Int | SR Int deriving (Show, Ord, Eq)
+data TriggerEvent = TriggerEvent { tpath :: Path, tinput :: Input } deriving (Show)
 
 data Direction = CW | CCW | S deriving (Show, Eq, Ord)
 
@@ -66,44 +48,20 @@ instance Enum Direction where
   fromEnum CW = 1
   fromEnum S = 0
 
+type KeyMap m k v = m (Map.Map k v)
 
+data Rig m k v = Rig { state :: MVar (KeyMap m k v, [KeyMap m k v]),
+                   merge :: KeyMap m k v -> KeyMap m k v -> KeyMap m k v,
+                   welder :: Input -> KeyMap m k v -> [(k, Input -> KeyMap m k v)],
+                   transformers :: [Input -> Input]
+                 }
 
---toMarker m = (path m, args m)
+type ActionMap m k v = Map.Map (Path, k) (k, Input -> KeyMap m k v)
 
-data Arg = Arg
-
-  --Int | String | Double | Ratio
-
-type Path = String
-
-type Variant = (Path, [Arg])
-
-
-
-data Context = C [Action]
-
-
-newtype Rig a = Rig { unplug :: a }
-
-type Material = ([String], [Int], [Rational])
-
-
-
-
---data X = X a
-
---newtype
-
-data Trigger = EmptyTrigger |
-                      Trigger {
-                        dest :: (T.OscShape,UDP),
-                        stack :: [String],
-                        vstack :: [Double],
-                        playhead :: Int,
-                        dir :: Direction,
-                        mapping :: Map.Map TriggerForm Action,
-                        cycleResolution :: Int,
-                        fifo :: [Char],
-                        pick :: Int,
-                        tempo :: Double
-                        }
+data Performance m k v = Perf {
+  rig :: Rig m k v,
+  actions :: ActionMap m k v, -- Map.Map (Path, k) (k, Input -> KeyMap m k v), -- combination of Path and Param is unique
+  tempo :: Double,
+  sockets :: [(Input -> KeyMap m k v)],
+  pending :: [TriggerEvent]
+  }
