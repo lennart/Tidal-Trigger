@@ -11,7 +11,7 @@ Technically speaking tidal trigger will evaluate one cycle of a pattern and dire
 ## Install
 
 ```shell
-git clone https://github.com/lennart/Tidal-Trigger
+git clone --branch=first-wave https://github.com/lennart/Tidal-Trigger
 cd Tidal-Trigger
 cabal install
 ```
